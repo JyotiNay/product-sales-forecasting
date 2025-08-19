@@ -1,4 +1,3 @@
-
 import os
 import joblib
 import pandas as pd
@@ -12,6 +11,22 @@ if os.path.exists(MODEL_PATH):
     model = joblib.load(MODEL_PATH)
 else:
     model = None
+
+# 👇 NEW: Home route so visiting "/" works
+@app.route("/", methods=["GET"])
+def home():
+    return (
+        "<h2>Product Sales Forecasting API</h2>"
+        "<p>Endpoints available:</p>"
+        "<ul>"
+        "<li><a href='/health'>/health</a> → check if service & model are ok</li>"
+        "<li>POST /predict_features → send JSON with 'features'</li>"
+        "</ul>"
+        "<p>Example request:</p>"
+        "<pre>curl -X POST https://product-sales-forecasting.onrender.com/predict_features "
+        "-H 'Content-Type: application/json' "
+        "-d '{\"features\": {\"price\": 12.99, \"is_promo\": 1, \"stock\": 120, \"category\": \"B\"}}'</pre>"
+    ), 200
 
 @app.route("/health", methods=["GET"])
 def health():
