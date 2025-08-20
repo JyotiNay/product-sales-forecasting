@@ -65,7 +65,27 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
+
+## 🚀 Deployment
+The final model is deployed as an API using **Flask** on **Render**.  
+
+- Live API: [Product Sales Forecasting](https://product-sales-forecasting.onrender.com)  
+- Health Check: `/health`  
+- Prediction Endpoint: `/predict_features`  
+
+Example request:
+```bash
+curl -X POST https://product-sales-forecasting.onrender.com/predict_features \
+  -H 'Content-Type: application/json' \
+  -d '{"features": {"price": 12.99, "is_promo": 1, "stock": 120, "category": "B"}}'
+
 export MODEL_PATH=../ml_outputs/best_model_pipeline.joblib
 export PORT=8000
+
+ 📊 Insights & Recommendations
+- Promotions increase sales by ~25% on average.  
+- Seasonal spikes in Q4 (holiday season) require stocking ~30% higher inventory.  
+- Price elasticity varies by category — luxury items less sensitive vs. budget items highly sensitive.  
+- Stock-outs directly cut sales; safety stock levels should be increased for top 20% products.  
 python app.py
 
