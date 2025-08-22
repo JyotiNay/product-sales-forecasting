@@ -1,53 +1,75 @@
-import os
-import joblib
+from flask import request, jsonify
 import pandas as pd
-from flask import Flask, request, jsonify
+import traceback
 
-app = Flask(__name__)
+def _coerce(rec: dict) -> dict:
+    req = ["price", "is_promo", "stock", "category"]
+    missing = [k for k in req if k not in rec]
+    if missing:
+        raise ValueError(f"Missing required fields: {missing}")
 
-# Load model at startup
-MODEL_PATH = os.getenv("MODEL_PATH", "ml_outputs/best_model_pipeline.joblib")
-if os.path.exists(MODEL_PATH):
-    model = joblib.load(MODEL_PATH)
-else:
-    model = None
+    # permissive coercion
+    def to_float(x):
+        try:
+            return float(x)
+        except Exception:
+            raise ValueError(f"Cannot parse numeric value for price: {x}")
 
-# 👇 NEW: Home route so visiting "/" works
-@app.route("/", methods=["GET"])
-def home():
-    return (
-        "<h2>Product Sales Forecasting API</h2>"
-        "<p>Endpoints available:</p>"
-        "<ul>"
-        "<li><a href='/health'>/health</a> → check if service & model are ok</li>"
-        "<li>POST /predict_features → send JSON with 'features'</li>"
-        "</ul>"
-        "<p>Example request:</p>"
-        "<pre>curl -X POST https://product-sales-forecasting.onrender.com/predict_features "
-        "-H 'Content-Type: application/json' "
-        "-d '{\"features\": {\"price\": 12.99, \"is_promo\": 1, \"stock\": 120, \"category\": \"B\"}}'</pre>"
-    ), 200
+    def to_int_boolish(x):
+        # allow 1/0, true/false strings
+        if isinstance(x, str):
+            t = x.strip().lower()
+            if t in {"1","true","t","yes","y"}: return 1
+            if t in {"0","false","f","no","n"}: return 0
+            # fall-through to int cast below
+        return int(x)
 
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok", "model_loaded": model is not None})
+    def to_int(x):
+        try:
+            return int(x)
+        except Exception:
+            raise ValueError(f"Cannot parse integer value: {x}")
 
-@app.route("/predict_features", methods=["POST"])
+    return {
+        "price": to_float(rec["price"]),
+        "is_promo": to_int_boolish(rec["is_promo"]),
+        "stock": to_int(rec["stock"]),
+        "category": str(rec["category"]),
+    }
+
+@app.post("/predict_features")
 def predict_features():
-    if model is None:
-        return jsonify({"error": "Model not loaded"}), 500
+    try:
+        payload = request.get_json(force=True, silent=False)
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
 
-    data = request.get_json()
-    features = data.get("features")
+    if not payload:
+        return jsonify({"error": "Empty payload"}), 400
 
-    if not features:
-        return jsonify({"error": "No features provided"}), 400
+    try:
+        # Accept flat body
+        if isinstance(payload, dict) and all(k in payload for k in ["price","is_promo","stock","category"]):
+            X = pd.DataFrame([_coerce(payload)])
+            yhat = float(pipe.predict(X)[0])
+            return jsonify({"prediction": yhat})
 
-    X = pd.DataFrame([features])
-    pred = model.predict(X)[0]
+        # Accept {"features": {...}}
+        if "features" in payload:
+            X = pd.DataFrame([_coerce(payload["features"])])
+            yhat = float(pipe.predict(X)[0])
+            return jsonify({"prediction": yhat})
 
-    return jsonify({"prediction": float(pred)})
+        # Accept {"instances": [{...}, {...}]}
+        if "instances" in payload and isinstance(payload["instances"], list):
+            rows = [_coerce(r) for r in payload["instances"]]
+            X = pd.DataFrame(rows)
+            preds = [float(v) for v in pipe.predict(X)]
+            return jsonify({"predictions": preds, "count": len(preds)})
 
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+        return jsonify({"error": "Send either a flat JSON, or {'features': {...}}, or {'instances': [...] }"}), 400
+
+    except Exception as e:
+        # print full traceback to Render logs (so 500s become debuggable)
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 400
