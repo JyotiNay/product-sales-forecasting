@@ -72,8 +72,34 @@ Create env & install deps.
 Run notebooks/01_eda_hypothesis_ml.ipynb to regenerate features and model.
 Export Tableau CSVs into /tableau.
 Open dashboards via Tableau Public link.
-(Optional) Launch API locally as above.
-9) Repository
+## Live API
+Base URL: https://product-sales-forecasting.onrender.com
+
+### Health
+`GET /health`
+```bash
+curl https://product-sales-forecasting.onrender.com/health
+Predict (single)
+POST /predict_features
+curl -X POST https://product-sales-forecasting.onrender.com/predict_features \
+  -H "Content-Type: application/json" \
+  -d '{"features":{"price":12.99,"is_promo":1,"stock":120,"category":"B"}}'
+Predict (batch)
+curl -X POST https://product-sales-forecasting.onrender.com/predict_features \
+  -H "Content-Type: application/json" \
+  -d '{"instances":[
+        {"price":12.99,"is_promo":1,"stock":120,"category":"B"},
+        {"price":49.99,"is_promo":0,"stock":30,"category":"D"}
+      ]}'
+
+---
+
+If you want, I can also:
+- generate a **Postman collection JSON** for import, or
+- write a **1-page Medium-ready “deployment appendix”** with these exact commands and screenshots checklist.
+
+What do you want to tackle next: Postman collection, README polish, or final Loom script with your real URL stitched in?
+10) Repository
 .
 ├── notebooks/EDA_and_Modeling.ipynb
 ├── deployment/app.py
