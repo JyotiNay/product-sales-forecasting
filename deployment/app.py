@@ -17,12 +17,14 @@ MODEL_PATH = ART_DIR / "model.joblib"
 METRICS_PATH = ART_DIR / "metrics.json"
 
 def ensure_model():
-    """Ensure a trained model exists; if not, run train.py."""
+    """Ensure a trained model exists; if not, run deployment/train_server.py."""
     if not MODEL_PATH.exists():
         try:
-            subprocess.check_call([sys.executable, "train.py"])
+            import subprocess, sys
+            print("[boot] model missing → training via deployment/train_server.py")
+            subprocess.check_call([sys.executable, "deployment/train_server.py"])
         except Exception as e:
-            print("[warn] Training failed or train.py not found:", e)
+            print("[warn] Training failed:", e)
 
 ensure_model()
 
