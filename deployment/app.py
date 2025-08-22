@@ -1,14 +1,51 @@
-from flask import request, jsonify
-import pandas as pd
-import traceback
+# deployment/app.py
 
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from pathlib import Path
+import pandas as pd
+import joblib, json, traceback, subprocess, sys
+
+# --- Create app FIRST (before any decorators) ---
+app = Flask(__name__)
+CORS(app)
+
+# --- Artifacts & model loading ---
+ART_DIR = Path("artifacts")
+ART_DIR.mkdir(exist_ok=True, parents=True)
+MODEL_PATH = ART_DIR / "model.joblib"
+METRICS_PATH = ART_DIR / "metrics.json"
+
+def ensure_model():
+    """Ensure a trained model exists; if not, run train.py."""
+    if not MODEL_PATH.exists():
+        try:
+            subprocess.check_call([sys.executable, "train.py"])
+        except Exception as e:
+            print("[warn] Training failed or train.py not found:", e)
+
+ensure_model()
+
+# Load pipeline
+pipe = None
+if MODEL_PATH.exists():
+    pipe = joblib.load(MODEL_PATH)
+
+metrics = {}
+if METRICS_PATH.exists():
+    try:
+        with open(METRICS_PATH) as f:
+            metrics = json.load(f)
+    except Exception:
+        metrics = {}
+
+# --- Helpers ---
 def _coerce(rec: dict) -> dict:
     req = ["price", "is_promo", "stock", "category"]
     missing = [k for k in req if k not in rec]
     if missing:
         raise ValueError(f"Missing required fields: {missing}")
 
-    # permissive coercion
     def to_float(x):
         try:
             return float(x)
@@ -16,12 +53,10 @@ def _coerce(rec: dict) -> dict:
             raise ValueError(f"Cannot parse numeric value for price: {x}")
 
     def to_int_boolish(x):
-        # allow 1/0, true/false strings
         if isinstance(x, str):
             t = x.strip().lower()
             if t in {"1","true","t","yes","y"}: return 1
             if t in {"0","false","f","no","n"}: return 0
-            # fall-through to int cast below
         return int(x)
 
     def to_int(x):
@@ -37,8 +72,35 @@ def _coerce(rec: dict) -> dict:
         "category": str(rec["category"]),
     }
 
+# --- Routes ---
+@app.get("/")
+def index():
+    return (
+        "<h2>Product Sales Forecasting API</h2>"
+        "<p>Endpoints available:</p>"
+        "<ul>"
+        "<li><a href='/health'>/health</a> → check if service & model are ok</li>"
+        "<li>POST /predict_features → send JSON with flat body, 'features', or 'instances'</li>"
+        "</ul>"
+        "<p>Example request:</p>"
+        "<pre>curl -X POST https://product-sales-forecasting.onrender.com/predict_features "
+        "-H 'Content-Type: application/json' "
+        "-d '{\"features\": {\"price\": 12.99, \"is_promo\": 1, \"stock\": 120, \"category\": \"B\"}}'</pre>"
+    )
+
+@app.get("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "model_loaded": pipe is not None,
+        "metrics": metrics
+    })
+
 @app.post("/predict_features")
 def predict_features():
+    if pipe is None:
+        return jsonify({"error": "Model not loaded"}), 500
+
     try:
         payload = request.get_json(force=True, silent=False)
     except Exception:
@@ -48,7 +110,7 @@ def predict_features():
         return jsonify({"error": "Empty payload"}), 400
 
     try:
-        # Accept flat body
+        # Accept flat JSON
         if isinstance(payload, dict) and all(k in payload for k in ["price","is_promo","stock","category"]):
             X = pd.DataFrame([_coerce(payload)])
             yhat = float(pipe.predict(X)[0])
@@ -67,9 +129,8 @@ def predict_features():
             preds = [float(v) for v in pipe.predict(X)]
             return jsonify({"predictions": preds, "count": len(preds)})
 
-        return jsonify({"error": "Send either a flat JSON, or {'features': {...}}, or {'instances': [...] }"}), 400
+        return jsonify({"error": "Send a flat JSON, or {'features': {...}}, or {'instances': [...] }"}), 400
 
     except Exception as e:
-        # print full traceback to Render logs (so 500s become debuggable)
         traceback.print_exc()
         return jsonify({"error": str(e)}), 400
